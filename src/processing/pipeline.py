@@ -1,8 +1,11 @@
-import os
-from pathlib import Path
-import logging
 from dataclasses import dataclass
 from typing import Tuple, Any
+from functools import wraps
+
+import os
+import time
+import logging
+from pathlib import Path
 
 from pyriemann.estimation import Covariances
 from pyriemann.tangentspace import TangentSpace
@@ -11,6 +14,20 @@ from ..data.hdf5_manager import HDF5Manager
 
 # TODO: Add parallel processing
 # TODO: handle del procedures
+
+def trace_execution_time(func):
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        start_time = time.perf_counter()
+        try:
+            result = func(self, *args, **kwargs)
+            return result
+        finally:
+            end_time = time.perf_counter()
+            duration = end_time - start_time
+            if hasattr(self, 'logger'):
+                self.logger.info(f"Execution context: {func.__name__} | Duration: {duration:.4f}s")
+    return wrapper
 
 @dataclass
 class ProcessingPipeline:
@@ -49,7 +66,7 @@ class ProcessingPipeline:
         # Validate and create necessary directories
         self._validate_dirs()
         # Initialize covariance estimator
-        self.cov_estimator = Covariances(estimator='cov')
+        self.cov_estimator = Covariances(estimator='lwf')
         # Initialize tangent space estimator
         self.ts_estimator = TangentSpace(metric='riemann')
 
@@ -97,14 +114,14 @@ class ProcessingPipeline:
             if data is None:
                 raise ValueError(f"Failed to load data or empty data from: {raw_file_path}")
 
-            # Compute covariance matrices
+            # Compute covariance matrices: TODO Compute time exec
             covs = self._covariances(data=data)
             
             # Save covariance matrices
             cov_file_path = Path(self.cov_dir) / f"{file}_covs"
             self.hdf_manager.save(data=covs, filename=str(cov_file_path), data_type='covariances')
 
-            # Project to tangent space
+            # Project to tangent space: TODO Compute time exec
             ts, cov_ref = self._tangent_space(data=covs)
             
             # Save covariance reference matrix
@@ -127,6 +144,7 @@ class ProcessingPipeline:
             self.logger.error(f"Unexpected error processing file {file}: {e}")
             raise
 
+    @trace_execution_time 
     def _covariances(self, data: MOABBData) -> CovarianceData:
         """
         Compute covariance matrices from input data.
@@ -155,6 +173,7 @@ class ProcessingPipeline:
             self.logger.error(f"Error in covariance calculation: {str(e)}")
             raise
 
+    @trace_execution_time
     def _tangent_space(self, data: CovarianceData) -> Tuple[TangentSpaceData, Any]:
         """
         Project covariance matrices to Riemannian tangent space.

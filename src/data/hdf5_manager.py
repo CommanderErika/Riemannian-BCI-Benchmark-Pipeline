@@ -94,11 +94,11 @@ class CovarianceDataManager(DataManager):
         labels = np.array(data.y, dtype='S64') if data.y.dtype.kind in ['U', 'O'] else data.y
         file.create_dataset(name='labels',
                             data=labels,
-                            compression=compression, chunks=chunk_shape)
+                            compression=compression, chunks=True)
         # Subjects
         file.create_dataset(name="subjects",
                             data=data.subjects,
-                            compression=compression, chunks=chunk_shape)
+                            compression=compression, chunks=True)
         # Store metadata
         file.attrs.update({
             'data_type' : 'covariances',
@@ -128,8 +128,8 @@ class CovarianceDataManager(DataManager):
         if labels.dtype.kind in ['S', 'a']:
             labels = np.char.decode(labels, 'utf-8')
         
-        # Convert to expected dtype
-        cov_data = np.array(cov_dataset, dtype=np.float32)
+        # Read in float64
+        cov_data = np.array(cov_dataset, dtype=np.float64)
         
         # Process channel names safely
         channel_names: list[str] = []
@@ -162,11 +162,11 @@ class TangentSpaceManager(DataManager):
         labels = np.array(data.y, dtype='S64') if data.y.dtype.kind in ['U', 'O'] else data.y
         file.create_dataset(name='labels',
                             data=labels,
-                            compression=compression, chunks=chunk_shape)
+                            compression=compression, chunks=True)
         # Subjects
         file.create_dataset(name="subjects",
                             data=data.subjects,
-                            compression=compression, chunks=chunk_shape)
+                            compression=compression, chunks=True)
         # Store metadata
         file.attrs.update({
             'data_type' : 'tangent',
@@ -179,14 +179,9 @@ class TangentSpaceManager(DataManager):
         tangent_dataset = file.get('x') or file.get('tangent')
         if tangent_dataset is None:
             raise KeyError("Neither 'x' nor 'tangent' dataset found in HDF5 file")
-        
-        # Verify and convert data type if necessary
-        expected_dtype = np.float32
-        if tangent_dataset.dtype != expected_dtype:
-            print(f"WARNING: Converting from {tangent_dataset.dtype} to {expected_dtype}")
-            tangent_data = np.array(tangent_dataset, dtype=expected_dtype)
-        else:
-            tangent_data = np.array(tangent_dataset)
+
+        # Read in float64
+        tangent_data = np.array(tangent_dataset, dtype=np.float64)
         
         # Loading Labels
         labels_ds = file.get('labels') or file.get('y')
@@ -265,13 +260,13 @@ class HDF5Manager:
         file_path = Path(filename).with_suffix(".h5")
         with h5py.File(file_path, 'w') as hf_file:
             # Dynamic chunking if not set
-            #optimal_chunks = self.chunk_shape or self._guess_chunk_shape(data.x)
+            optimal_chunks = True # self.chunk_shape # or self._guess_chunk_shape(data.x)
             # Saving file
             strategy.save(
                 file=hf_file,
                 data=data,
                 compression=self.compression,
-                chunk_shape=self.chunk_shape
+                chunk_shape=optimal_chunks
             )
 
     def load(self, filename: str) -> any:
@@ -288,5 +283,21 @@ class HDF5Manager:
         
     # Helper methods
     def _guess_chunk_shape(self, array: np.ndarray) -> tuple:
-        """Auto-determine optimal chunks for EEG data"""
-        return (min(100, array.shape[0]), *array.shape[1:])
+        """
+        Auto-determine optimal chunks for data.
+        Returns `True` to let h5py's C-level engine calculate the optimal 
+        byte-bounded chunk size, OR computes a safe bounded tuple.
+        """
+        
+        if not isinstance(array, np.ndarray):
+            return True # Fallback seguro
+            
+        row_size_bytes = np.prod(array.shape[1:]) * array.itemsize
+        if row_size_bytes == 0:
+            return True
+
+        target_chunk_bytes = 1024 * 1024  # 1 MB
+        ideal_rows = max(1, target_chunk_bytes // row_size_bytes)
+        chunk_rows = int(min(ideal_rows, array.shape[0]))
+        
+        return (chunk_rows, *array.shape[1:])

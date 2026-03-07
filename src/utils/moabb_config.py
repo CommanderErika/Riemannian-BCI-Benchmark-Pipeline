@@ -18,10 +18,17 @@ MOABB_DATASETS: Dict[str, Type[BaseDataset]] = {
     "BNCI2014_004": datasets.BNCI2014_004,
     "BNCI2014_002": datasets.BNCI2014_002,
     "BNCI2014_001": datasets.BNCI2014_001,
+    "BNCI2015_004": datasets.BNCI2015_004,
+    "BNCI2015_001": datasets.BNCI2015_001,
     "AlexMI":       datasets.AlexMI,
     "Liu2024":      datasets.Liu2024,
     "PhysionetMI":  datasets.PhysionetMI,
     "Lee2019_MI":   datasets.Lee2019_MI,
+    "Shin2017A":    datasets.Shin2017A,
+    "Shin2017B":    datasets.Shin2017B,
+    "Weibo2014":    datasets.Weibo2014,
+    "Dreyer2023":   datasets.Dreyer2023,
+    "Schirrmeister2017": datasets.Schirrmeister2017,
 }
 
 MOABB_PARADIGMS: Dict[str, Type[BaseParadigm]] = {
@@ -66,7 +73,7 @@ def handle_components(names: List[str], registry: Dict[str, Type[T]]) -> List[Ty
             
     return valid_components
 
-# --- Facade Functions (API Wrappers) ---
+# --- API Wrappers ---
 
 def get_dataset(dataset_name: str) -> Optional[Type[BaseDataset]]:
     return get_component(dataset_name, MOABB_DATASETS)

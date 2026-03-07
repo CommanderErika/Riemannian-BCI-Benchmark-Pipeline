@@ -2,6 +2,9 @@ from abc import ABC, abstractmethod
 from typing import Optional
 from dataclasses import dataclass, field
 
+import json
+import os
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -32,8 +35,10 @@ class MLflowTracker(BaseTracker):
         # Log metadata
         mlflow.log_params(experiment_data['params'])
         # Log metrics
+        name_file = f"{experiment_data['dataset_name']}_{experiment_data['model_type']}_{experiment_data['trial']}"
         self._log_metrics(metrics=experiment_data['metrics_train'], prefix='train_')
         self._log_metrics(metrics=experiment_data['metrics_test'], prefix='test_')
+        self._log_json(metrics=experiment_data['all_cv_metric'], name_file=name_file)
         # Log tags
         mlflow.set_tags({
             'dataset':          experiment_data['dataset_name'],
@@ -41,22 +46,34 @@ class MLflowTracker(BaseTracker):
             'model_type':       experiment_data['model_type'],
             'PA'      :         experiment_data['use_pa'],
             'run_type':         'hyperparameter_tuning',
+            'trial'   :         experiment_data['trial']
         })
         # Log artefacts
-        images = {'x_train_dim' : experiment_data['x_train_dim'],
-                  'x_test_dim'  : experiment_data['x_test_dim']}
+        #images = {'x_train_dim' : experiment_data['x_train_dim'],
+        #          'x_test_dim'  : experiment_data['x_test_dim']}
         
         # Plot 2D
-        self._log_artefacts_2d(images, y_train, y_test)
+        #self._log_artefacts_2d(images, y_train, y_test)
         # Plot 3D
-        self._log_artefacts_3d(images, y_train, y_test)
-        self._log_artefacts_3d_proj(images, y_train, y_test)
+        #self._log_artefacts_3d(images, y_train, y_test)
+        #self._log_artefacts_3d_proj(images, y_train, y_test)
 
     def _log_metrics(self, metrics: dict, prefix: str = ''):
         """Methods to log metrics to mlflow"""
         # Precision, Recall, and F1-Score
         metrics_avg = {f'{prefix}{key}': value for key, value in metrics.items()}
         mlflow.log_metrics(metrics_avg)
+
+    def _log_json(self, metrics: dict, name_file: str):
+        """Method to log dump a json file"""
+        results_filename = f"{name_file}_cv_folds_distribution.json"
+        # Create file
+        with open(results_filename, "w") as f:
+            json.dump(metrics, f, indent=4)
+        # Send to mlflow
+        mlflow.log_artifact(results_filename, artifact_path="metrics_raw")
+        # Remove trash
+        os.remove(results_filename)
 
     def _log_artefacts_2d(self, images, y_train, y_test):
         """Methods to log artefacts to mlflow with separate plots for left_hand and right_hand"""

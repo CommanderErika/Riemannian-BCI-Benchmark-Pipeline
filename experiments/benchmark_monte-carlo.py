@@ -16,11 +16,11 @@ from src.models import SVMModel, LogisticModel, LDAModel
 if __name__ == "__main__":
 
     LIB: str        = "PyRiemann"
-    DATA_DIR: str   = "./data/processed/ts/" if LIB == "PyRiemann" else "./data/riemanndsp/ts/"
-    DATASETS: str   = [ "Cho2017", "BNCI2014_004", "BNCI2014_001",
-                        "Liu2024", "Lee2019_MI", "PhysionetMI"]
+    DATA_DIR: str   = "./data/processed/ts" # "./data/riemanndsp/ts/"
+    DATASETS: str   = ['Dreyer2023'] # ['BNCI2014_001', 'BNCI2014_002', 'BNCI2014_004', 'BNCI2015_001', 'BNCI2015_004']
+    # ['BNCI2014_001.h5', 'BNCI2014_002.h5', 'BNCI2014_004.h5', 'BNCI2015_001.h5', 'BNCI2015_004.h5', 'Cho2017.h5', 'Dreyer2023.h5', 'Lee2019_MI.h5', 'Liu2024.h5', 'Weibo2014.h5', 'Zhou2016.h5']
     URI: str        = "http://127.0.0.1:8080"
-    N_TRIALS        = 1
+    N_TRIALS        = 5
     USE_PROCRUSTES  = False
 
     for dataset in DATASETS:
@@ -77,7 +77,7 @@ if __name__ == "__main__":
                                     })
 
         # Running Experiments
-        _ = orchestrator.run_benchmark(n_trials=N_TRIALS)
+        _ = orchestrator.run_benchmark(n_trials=N_TRIALS, n_job=5)
 
         del mlflow_tracker
         del orchestrator

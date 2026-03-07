@@ -12,6 +12,8 @@ from joblib import Parallel, delayed
 import matplotlib.pyplot as plt
 import mlflow
 import optuna
+from optuna.storages import RDBStorage
+import sqlite3
 import numpy as np
 import yaml
 import logging.config
@@ -96,7 +98,7 @@ class ExperimentOrchestrator:
         self._models[model_key] = model_class
         self._params_list[model_key] = params
 
-    def run_benchmark(self, n_trials: int = 20) -> Dict[str, Dict]:
+    def run_benchmark(self, n_trials: int = 20, n_job: int = 1) -> Dict[str, Dict]:
         """
         Iterates through ALL registered models and runs a dedicated optimization
         experiment for each one sequentially.
@@ -112,7 +114,7 @@ class ExperimentOrchestrator:
                 # Force the experiment to run ONLY this model
                 best_params = self.run_experiments(
                     n_trials=n_trials, 
-                    n_jobs=1, 
+                    n_jobs=n_job, 
                     model_name=model_name
                 )
                 results[model_name] = best_params
@@ -134,14 +136,61 @@ class ExperimentOrchestrator:
         """
         # Store target model for _objective to see
         self._target_model_name = model_name
+        # Create distinct study names for benchmarks
+        study_name = f"{self.dataset}_{model_name}"
 
-        # Create distinct study names for benchmarks vs automl
-        if model_name:
-            study_name = f"{self.dataset}_{model_name}"
-        else:
-            study_name = f"{self.dataset}_automl"
+        data_dir = os.path.join(os.getcwd(), "data", "optuna_db")
+        os.makedirs(data_dir, exist_ok=True)
+        db_path = os.path.join(data_dir, f"{study_name}.db")
+
+        storage_url = f"sqlite:///{db_path}"
+
+        self.logger.info(f"INFO: Storing database at: {storage_url}")
+
+        try:
+            with sqlite3.connect(db_path, timeout=30) as conn:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+
+        except sqlite3.Error as e:
+            self.logger.error(f"Erro ao configurar SQLite PRAGMA: {e}")
+            raise
+
+        try:
+
+            storage = RDBStorage(
+                url=storage_url,
+                engine_kwargs={
+                    "connect_args": {"timeout": 20},
+                    "pool_pre_ping": True,
+                }
+            )
+
+            study = optuna.create_study(
+                direction="maximize",
+                study_name=study_name,
+                storage=storage,
+                load_if_exists=True
+            )
+
+            study.optimize(
+                self._objective,
+                n_trials=n_trials,
+                n_jobs=n_jobs, # Agora pode usar -1 para usar todos os cores
+                gc_after_trial=True,
+                show_progress_bar=True,
+            )
+
+            return study.best_params
+
+        except Exception as e:
+            self.logger.error(f"Erro durante a otimização: {e}")
+            raise
+        finally:
+            self._cleanup_resources()
+            self._kill_orphaned_processes()
         
-        # Create the full path string first
+        """# Create the full path string first
         project_root = os.getcwd()
         data_path = "./data/optuna_db"
 
@@ -175,7 +224,7 @@ class ExperimentOrchestrator:
             return study.best_params
         finally:
             self._cleanup_resources()
-            self._kill_orphaned_processes()
+            self._kill_orphaned_processes()"""
 
     def _objective(self, trial: optuna.trial.Trial) -> float:
         """
@@ -207,10 +256,12 @@ class ExperimentOrchestrator:
 
                 # ----- Leave-One-Subject-Out (LOSO) -----
                 logo = LeaveOneGroupOut()
+                self.logger.info(f"Number of subjects: {logo.get_n_splits(groups=subjects)}")
 
                 # Dictionary to store list of scores for every metric
                 cv_results_train = defaultdict(list)
                 cv_results_test = defaultdict(list)
+                cv_metrics = dict({'accuracy': [], 'f1-score_weighted': []})
 
                 # Placeholders for visualization data (we will grab them from the last fold)
                 last_x_train = None
@@ -218,14 +269,17 @@ class ExperimentOrchestrator:
                 last_y_train = None
                 last_y_test = None
 
-                # Initialize counter
-                fold_idx = 1
+                for i, (train_idx, test_idx) in enumerate(logo.split(x_data, y_data, groups=subjects)):
 
-                for train_idx, test_idx in logo.split(x_data, y_data, groups=subjects):
+                    self.logger.debug(f"Fold {i}:")
+                    #self.logger.debug(f"  Train: index={train_idx}, group={subjects[train_idx]}")
+                    #self.logger.debug(f"  Test:  index={test_idx}, group={subjects[test_idx]}")
 
                     # Slice Data using indices
                     x_train, y_train = x_data[train_idx], y_data[train_idx]
                     x_test, y_test = x_data[test_idx], y_data[test_idx]
+
+                    #self.logger.debug(x_test)
 
                     # Check for NaNs
                     if np.isnan(x_train).any() or np.isinf(x_train).any():
@@ -265,32 +319,36 @@ class ExperimentOrchestrator:
                     for metric_name, score_value in metrics_test.items():
                         cv_results_test[metric_name].append(score_value)
 
+                    # Get F1-Score and Accuracy
+                    for metric_name, score_value in metrics_test.items():
+                        if metric_name == "f1-score_weighted":
+                            cv_metrics["f1-score_weighted"].append(score_value)
+                        if metric_name == "accuracy":
+                            cv_metrics["accuracy"].append(score_value)
+                        
+
                     # Save data from this fold for logging/viz later
                     last_x_train = x_train
                     last_x_test = x_test
                     last_y_train = y_train
                     last_y_test = y_test
 
-                    self.logger.debug(f"Fold {fold_idx} processing...")
-                    # Increment counter for next loop
-                    fold_idx += 1
-
                 # Aggregating Scores
                 final_metrics_train = {}
                 for metric_name, scores in cv_results_train.items():
-                    final_metrics_train[f"cv_mean_{metric_name}"] = np.mean(scores)
-                    final_metrics_train[f"cv_std_{metric_name}"]  = np.std(scores)
+                    final_metrics_train[f"mean_{metric_name}"] = np.mean(scores)
+                    final_metrics_train[f"std_{metric_name}"]  = np.std(scores)
 
                 final_metrics_test = {}
                 for metric_name, scores in cv_results_test.items():
-                    final_metrics_test[f"cv_mean_{metric_name}"] = np.mean(scores)
-                    final_metrics_test[f"cv_std_{metric_name}"]  = np.std(scores)
+                    final_metrics_test[f"mean_{metric_name}"] = np.mean(scores)
+                    final_metrics_test[f"std_{metric_name}"]  = np.std(scores)
 
                 # Dimensionality Reduction (Visualization only)
-                x_train_reduced, x_test_reduced = self.apply_pca_lda_umap(
-                    last_x_train, last_y_train, last_x_test, last_y_test, 
-                    method='umap', n_components=3
-                )
+                #x_train_reduced, x_test_reduced = self.apply_pca_lda_umap(
+                #    last_x_train, last_y_train, last_x_test, last_y_test, 
+                #    method='umap', n_components=3
+                #)
 
                 # Logging
                 experiment_data = {
@@ -298,11 +356,13 @@ class ExperimentOrchestrator:
                     'use_pa': self.use_pa,
                     'metrics_train': final_metrics_train,
                     'metrics_test': final_metrics_test,
+                    'all_cv_metric': cv_metrics,
                     'dataset_name': self.dataset,
                     'processing_lib': self.process_lib,
                     'model_type': model_name,
-                    'x_train_dim': x_train_reduced,
-                    'x_test_dim': x_test_reduced
+                #    'x_train_dim': x_train_reduced,
+                #    'x_test_dim': x_test_reduced,
+                    'trial'     : trial.number
                 }
 
                 self.tracker.log_experiment(
@@ -311,9 +371,9 @@ class ExperimentOrchestrator:
                     y_test=y_test
                 )
 
-                target_metric = final_metrics_test.get('cv_mean_f1-score_macro')
+                target_metric = final_metrics_test.get('mean_f1-score_macro')
                 if target_metric is None:
-                     target_metric = final_metrics_test.get('cv_mean_macro_f1-score', 0.0)
+                     target_metric = final_metrics_test.get('mean_macro_f1-score', 0.0)
 
                 return target_metric
 
