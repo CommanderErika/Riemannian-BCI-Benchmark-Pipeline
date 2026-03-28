@@ -1,7 +1,3 @@
-import yaml
-from pathlib import Path
-import logging
-
 from pipe_bci_toolkit import DataExtractor
 
 if __name__ == "__main__":

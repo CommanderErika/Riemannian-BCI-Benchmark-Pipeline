@@ -142,6 +142,8 @@ pip install -e /path/to/eeg-pyriemann-pipeline
 ```
 # Using uv:
 uv pip install git+https://github.com/CommanderErika/eeg-pyriemann-pipeline.git
+# Or
+uv pip install --no-cache --force-reinstall git+https://github.com/CommanderErika/eeg-pyriemann-pipeline.git
 
 # OR using standard pip:
 pip install git+https://github.com/CommanderErika/eeg-pyriemann-pipeline.git

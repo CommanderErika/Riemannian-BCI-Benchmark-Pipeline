@@ -38,8 +38,6 @@ class DataExtractor:
         self.logger = logging.getLogger(__name__)
         if not self.log:
             self.logger.disabled = True
-        elif not self.verbose:
-            self.logger.setLevel(logging.WARNING)
             
         self.logger.debug("DataExtractor initialized with %d datasets", len(self.dataset_names))
 
