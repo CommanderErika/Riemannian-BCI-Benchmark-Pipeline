@@ -29,28 +29,30 @@ handlers:
     filename: "logs/benchmarking.log"
 
 loggers:
-  src.data:
+  # This catches everything inside pipe_bci_toolkit.data
+  pipe_bci_toolkit.data:
     handlers: ["extraction"]
     level: "DEBUG"
     propagate: true
   
-  src.processing: 
-    handlers: ['processing']
+  # This catches everything inside pipe_bci_toolkit.processing
+  pipe_bci_toolkit.processing: 
+    handlers: ["processing"]
     level: "DEBUG"
     propagate: true
 
-  # Orchestrator/Tracking module
-  src.tracking:
+  # This catches everything inside pipe_bci_toolkit.tracking
+  pipe_bci_toolkit.tracking:
     handlers: ["benchmarking", "console"]
     level: "DEBUG"
-    propagate: false
+    propagate: true
 
-  experiments:
-    handlers: ["console", "benchmarking"]
-    level: "INFO"
-    propagate: false
-
+  # Keeps your main script outputting to console
   __main__:
     handlers: ["console"]
     level: "INFO"
     propagate: true
+
+root:
+  level: "WARNING"
+  handlers: ["console"]
